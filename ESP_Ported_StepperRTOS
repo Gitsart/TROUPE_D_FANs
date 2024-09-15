@@ -1,0 +1,90 @@
+#include<MobaTools.h>
+#include<MoToTimer.h>
+#include<ESP32Servo.h>
+
+#define LED 2
+
+
+#define stepPin 25  //STEPPER-steppin
+#define dirPin 26   //STEPPER-DIRpin
+#define limitPin 34
+static const int servoPin = 27;
+const int stepsperRev = 200;  //STEPPER_steprate
+
+MoToStepper stepper1(stepsperRev, STEPDIR); //instance_STEPPR
+MoToTimer stepperPause; //unblockinTIMERinstance
+Servo myservo;    //SERVOinstance
+
+
+int startPos = 0;            //stepper-Assignment
+long nextPos;                 //stepper_LOOP-rotation
+const long targetPos = 400;        //Stepper_LOOP_rotation_POSITIONS
+int limit_count = 0;           //SENSORBOOLEAN_RotaionCount
+int hOme = 0; // HOMEpositionBoolean
+bool stepperRunning;
+
+void homing () {
+
+  /*STEPPER HOMING FUNCTION AT START OF THE SYSTEM*/
+
+
+  stepper1.setSpeed(1000);
+  while (digitalRead(limitPin != HIGH) && limit_count == 0) {
+    stepper1.rotate(1);
+    Serial.println(
+  }
+  if (digitalRead(limitPin) == HIGH && limit_count == 0)
+  {
+    stepper1.stop(); limit_count += 1; hOme = 1;
+    delay(2000);
+  }
+
+}
+
+void setup() {
+  Serial.begin(115200);
+  stepper1.attach(stepPin, dirPin);
+  myservo.attach(servoPin);
+  stepper1.setRampLen(100);
+
+  pinMode(limitPin, INPUT_PULLUP);
+  pinMode(LED, OUTPUT);
+
+  homing();
+
+  xTaskCreatePinnedToCore(stepr, "stprloop", 2000, NULL, 1, NULL, 0);
+  
+}
+
+void stepr (void* pvParameters) {
+  while(1) {
+    if ( stepperRunning ) {
+    // Wait till stepper has reached target, then set pause time
+    if ( !stepper1.moving() ) {
+      // stepper has reached target, start pause
+      stepperPause.setTime( 1000 );
+      stepperRunning = false;
+    }
+  } else {
+    // stepper doesn't move, wait till stepperPause time expires
+    if ( stepperPause.expired() ) {
+      // stepperPause time expired. Start stepper in opposite direction
+      if ( nextPos == 0 ) {
+        nextPos = targetPos;
+      } else {
+        nextPos = 0;
+      }
+      stepper1.moveTo(-nextPos );
+      stepperRunning = true;
+    }
+  }
+  vTaskDelay(10 / portTICK_PERIOD_MS);  // Add a small delay to avoid watchdog reset
+  }
+}
+void loop() {
+  Serial.println("*");
+  digitalWrite(LED,HIGH);
+  delay(500);
+  digitalWrite(LED,LOW);
+  delay(500);
+}
