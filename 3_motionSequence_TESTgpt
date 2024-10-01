@@ -1,0 +1,140 @@
+#include <MobaTools.h>
+
+#define stepPin 25
+#define dirPin 26
+#define limitPin 34
+const int stepsPerRev = 1000;
+const long targetPos = -750; // Define your target position
+long nextPos;
+
+MoToStepper myStepper(stepsPerRev, STEPDIR);
+MoToTimer stepperPause; // Pause between stepper moves
+bool stepperRunning;
+bool hfun;
+int lim = 0;
+
+unsigned long startTime = 0; // Timer variable
+bool timerActive = false; // Boolean to track timer status
+
+// Motion sequence variables
+int currentSequence = 0;
+int sequenceCount = 0;
+
+const int maxRepeats = 5; // Number of repeats for each sequence
+
+void setup() {
+  pinMode(limitPin, INPUT_PULLUP);
+  myStepper.attach(stepPin, dirPin);
+  myStepper.setSpeed(150); // Initial speed for first sequence
+  myStepper.setRampLen(5);
+  Serial.begin(115200);
+  stepperRunning = true;
+  homeFun();
+}
+
+void loop() {
+  if (hfun) {
+    if (timerActive) {
+      // Check if 10 seconds have passed
+      if (millis() - startTime >= 10000) { // 10000 ms = 10 seconds
+        timerActive = false; // Stop the timer
+        currentSequence = 0; // Start with the first sequence
+      } else {
+        return; // Exit loop until 10 seconds have passed
+      }
+    }
+
+    // Perform motion sequences based on the current sequence
+    switch (currentSequence) {
+      case 0:
+        // Sequence 1: Clockwise and Anticlockwise Motion
+        performClockwiseAnticlockwise();
+        break;
+      case 1:
+        // Sequence 2: 180-Degree Rotations
+        performHalfRotations();
+        break;
+      case 2:
+        // Sequence 3: 2 Full Turns
+        performTwoTurns();
+        break;
+      default:
+        // Reset to the first sequence
+        currentSequence = 0;
+        sequenceCount = 0;
+        break;
+    }
+  }
+}
+
+void homeFun() {
+  while (digitalRead(limitPin) == 0) {
+    myStepper.rotate(1);
+  }
+  if (digitalRead(limitPin) != 0) {
+    myStepper.stop();
+    myStepper.setZero();
+    hfun = true;
+
+    // Start the timer for 10 seconds
+    startTime = millis();
+    timerActive = true; // Activate the timer
+  }
+}
+
+void performClockwiseAnticlockwise() {
+  if (sequenceCount < maxRepeats) {
+    // Move clockwise
+    myStepper.moveTo(targetPos);
+    stepperRunning = true;
+
+    if (!myStepper.moving() && stepperRunning) {
+      stepperPause.setTime(1000); // Pause after reaching target
+      stepperRunning = false; // Set running to false
+      sequenceCount++;
+    }
+  } else {
+    // Reset for next sequence
+    sequenceCount = 0;
+    currentSequence++;
+  }
+}
+
+void performHalfRotations() {
+  if (sequenceCount < maxRepeats) {
+    // Move 180 degrees (assume 180 degrees is half the steps per rev)
+    myStepper.setSpeed(75); // Lower speed for this sequence
+    myStepper.moveTo(targetPos / 2); // Rotate 180 degrees
+    stepperRunning = true;
+
+    if (!myStepper.moving() && stepperRunning) {
+      stepperPause.setTime(1000); // Pause after reaching target
+      stepperRunning = false; // Set running to false
+      sequenceCount++;
+    }
+  } else {
+    // Reset for next sequence
+    sequenceCount = 0;
+    currentSequence++;
+    myStepper.setSpeed(150); // Reset speed for the next sequence
+  }
+}
+
+void performTwoTurns() {
+  if (sequenceCount < maxRepeats) {
+    // Move 2 full turns (2 * steps per rev)
+    myStepper.setSpeed(200); // Slightly higher speed for this sequence
+    myStepper.moveTo(targetPos * 2); // Rotate 2 turns
+    stepperRunning = true;
+
+    if (!myStepper.moving() && stepperRunning) {
+      stepperPause.setTime(1000); // Pause after reaching target
+      stepperRunning = false; // Set running to false
+      sequenceCount++;
+    }
+  } else {
+    // Reset for the continuous loop
+    sequenceCount = 0;
+    currentSequence = 0; // Start back at the first sequence
+  }
+}
