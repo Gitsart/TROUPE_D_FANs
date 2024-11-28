@@ -1,0 +1,162 @@
+#include <ESP32Servo.h>
+#include <MobaTools.h>
+
+static const int servoPin = 12;
+Servo servo1;
+
+#define stepPin 25
+#define dirPin 26
+
+
+const int stepsPerRev = 200; // Steps per Revolution (example with 1/4 microsteps)
+MoToStepper myStepper(stepsPerRev, STEPDIR);
+
+// Stepper motion schedule: {startTime(ms), steps, stepperSpeed}
+struct StepperMotion {
+  unsigned long startTime;
+  long steps;
+  int stepperSpeed;
+};
+StepperMotion stepperSchedule[] = {
+  {11000, 0, 0},
+  {26000, 0, 0},
+  {28500, 750, 100},
+  {35000, -750, 100},
+  {46000, 0, 0},
+  {56000, 0, 0},
+  {56000, 0, 0},
+  {66000, 750, 100},
+  {76000, -750, 100},
+  {87000, 750, 100},
+  {97000, -750, 100},
+  {105000, 190, 100},
+  {110000, -380, 120},
+  {115000, 190, 100,},
+  {124000, 3000, 200},
+  {132000, -3000, 200}
+
+};
+const int stepperScheduleLength = sizeof(stepperSchedule) / sizeof(stepperSchedule[0]);
+int currentStepperIndex = 0;
+
+// Servo motion schedule: {startTime(ms), startAngle, endAngle, servoSpeed (degrees/step)}
+struct ServoMotion {
+  unsigned long startTime;
+  int startAngle;
+  int endAngle;
+  int servoSpeed;
+};
+ServoMotion servoSchedule[] = {
+  {11000, 10, 70, 50},
+  {26000, 70, 10, 50},
+  {28500, 10, 10, 1000},
+  {35000, 10, 10, 1000},
+  {46000, 10, 70, 100 },
+  {56000, 10, 10, 1000 },
+  {66000, 10, 70, 80},
+  {76000, 70, 10, 80},
+  {87000, 10, 70, 50},
+  {97000, 70, 10, 50},
+  {105000, 10, 10, 1000 },
+  {110000, 10, 10, 1000},
+  {115000, 10, 10, 1000},
+  {124000, 10, 60, 66.66666666},
+  {132000, 10, 60, 66.66666666},
+
+
+};
+const int servoScheduleLength = sizeof(servoSchedule) / sizeof(servoSchedule[0]);
+int currentServoIndex = 0;
+
+// Task handles
+TaskHandle_t stepperTaskHandle;
+TaskHandle_t servoTaskHandle;
+
+// Stepper control task
+void stepperTask(void *pvParameters) {
+  unsigned long startTime = millis();
+  while (true) {
+    unsigned long currentTime = millis() - startTime;
+
+    if (currentStepperIndex < stepperScheduleLength) {
+      StepperMotion currentMotion = stepperSchedule[currentStepperIndex];
+
+      if (currentTime >= currentMotion.startTime) {
+        myStepper.setSpeed(currentMotion.stepperSpeed);
+        myStepper.move(currentMotion.steps);
+        Serial.printf("Stepper: Moving %ld steps at speed %d\n", currentMotion.steps, currentMotion.stepperSpeed);
+
+        while (myStepper.moving()) {
+          delay(10);
+        }
+        currentStepperIndex++;
+      }
+    } else {
+      // Restart schedule
+      currentStepperIndex = 0;
+      myStepper.moveTo(0);
+      startTime = millis(); // Reset start time
+
+    }
+
+    delay(10); // Small delay to allow other tasks to run
+  }
+}
+
+// Servo control task
+void servoTask(void *pvParameters) {
+  unsigned long startTime = millis();
+  while (true) {
+    unsigned long currentTime = millis() - startTime;
+
+    if (currentServoIndex < servoScheduleLength) {
+      ServoMotion currentMotion = servoSchedule[currentServoIndex];
+
+      if (currentTime >= currentMotion.startTime) {
+        int startAngle = currentMotion.startAngle;
+        int endAngle = currentMotion.endAngle;
+        int servoSpeed = currentMotion.servoSpeed;
+
+        if (startAngle < endAngle) {
+          for (int angle = startAngle; angle <= endAngle; angle++) {
+            servo1.write(angle);
+            delay(1000 / servoSpeed);
+          }
+        } else {
+          for (int angle = startAngle; angle >= endAngle; angle--) {
+            servo1.write(angle);
+            delay(1000 / servoSpeed);
+          }
+        }
+        Serial.printf("Servo: Moved from %d to %d at speed %d\n", startAngle, endAngle, servoSpeed);
+        currentServoIndex++;
+      }
+    } else {
+      // Restart schedule
+      currentServoIndex = 0;
+      startTime = millis(); // Reset start time
+    }
+
+    delay(10); // Small delay to allow other tasks to run
+  }
+}
+
+void setup() {
+
+  servo1.attach(servoPin);
+  myStepper.attach(stepPin, dirPin);
+
+  Serial.begin(115200);
+
+  servo1.write(0);
+  myStepper.setZero();
+
+
+  // Create tasks for stepper and servo
+  xTaskCreatePinnedToCore(stepperTask, "Stepper Task", 1000, NULL, 1, &stepperTaskHandle, 0);
+  xTaskCreatePinnedToCore(servoTask, "Servo Task", 1000, NULL, 1, &servoTaskHandle, 1);
+}
+
+void loop() {
+  // The loop is empty since tasks are running independently
+}
